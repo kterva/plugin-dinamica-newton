@@ -1,7 +1,7 @@
 <?php
 /**
  * Plugin Name: Física 5.º Científico — Dinámica y 2.ª Ley de Newton
- * Plugin URI: https://github.com/leo/plugin_segundaley
+ * Plugin URI: https://github.com/kterva/plugin-dinamica-newton
  * Description: Entorno interactivo y riguroso de aprendizaje desatendido para 5.º año de Bachillerato (Plan 94 / 2.° EMS, Uruguay). Trata notación vectorial estricta, DCL, fuerzas de rozamiento estático y cinético, plano inclinado, cuerpos vinculados con poleas y acople cinemático, con un taller de problemas.
  * Version: 2.3.0
  * Author: Departamento de Física - Bachillerato Diversificado
