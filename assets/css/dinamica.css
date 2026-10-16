@@ -1061,6 +1061,101 @@
   }
 }
 
+/* Celulares: menos relleno, esquemas con desplazamiento horizontal y leyendas/hoja de examen sin desbordar */
+@media (max-width: 640px) {
+  .psd-container {
+    padding: 0 0.5rem;
+    margin: 0.75rem auto;
+  }
+  .psd-header {
+    padding: 1.25rem 1rem;
+    gap: 1rem;
+  }
+  .psd-header h1 {
+    font-size: 1.4rem;
+  }
+  .psd-card {
+    padding: 1rem 0.85rem;
+  }
+  .psd-card h2 {
+    font-size: 1.25rem;
+  }
+  .psd-card h3 {
+    font-size: 1.08rem;
+  }
+  .psd-callout {
+    padding: 0.75rem 0.85rem;
+  }
+  .psd-formula-box {
+    padding: 0.6rem 0.5rem;
+    font-size: 0.95rem;
+  }
+  .katex-display {
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+  .psd-sim-wrap {
+    padding: 0.25rem;
+    gap: 1rem;
+  }
+
+  /* Los esquemas se dibujan en un lienzo ancho: en lugar de achicarlos hasta volverlos ilegibles,
+     se mantienen a un tamaño mínimo y se desplazan con el dedo. */
+  .psd-canvas-wrap,
+  .psd-system-schema-canvas {
+    display: block;
+    min-height: 0;
+    padding: 0.25rem;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .psd-canvas-wrap svg {
+    width: 100%;
+    min-width: 500px;
+    max-height: none;
+  }
+  .psd-system-schema-canvas svg {
+    width: 100%;
+    min-width: 540px;
+    max-width: none;
+  }
+  .psd-canvas-wrap::after,
+  .psd-system-schema-canvas::after {
+    content: "↔ Deslizá para ver todo el esquema";
+    display: block;
+    position: sticky;
+    left: 0;
+    font-size: 0.72rem;
+    color: #64748b;
+    text-align: left;
+    padding: 0.15rem 0.25rem 0;
+  }
+  .psd-dcl-canvas svg {
+    max-height: none;
+  }
+
+  .psd-schema-legend-grid {
+    grid-template-columns: 1fr;
+  }
+  .psd-readout-panel {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  /* Hoja de evaluación */
+  .psd-exam-paper {
+    padding: 1rem;
+  }
+  .psd-exam-header-school {
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  .psd-exam-student-box {
+    min-width: 0;
+    width: 100%;
+    box-sizing: border-box;
+  }
+}
+
 /* Estilos de Impresión */
 @media print {
   body * {
