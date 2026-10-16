@@ -1,0 +1,114 @@
+#!/usr/bin/env bash
+# Despliega el plugin al servidor de producción (leonardotrujillo.uy) y limpia la caché de Varnish.
+#
+# Uso:
+#   ./bin/deploy            # backup + subida + verificación + purga de caché
+#   ./bin/deploy --dry-run  # solo muestra qué se subiría y qué cambia
+#
+# Sube SOLO una lista explícita de archivos del plugin (nunca la carpeta entera):
+# así no viajan PDF, zips, .env, docker/ ni nada que se haya guardado por error en el proyecto.
+set -euo pipefail
+
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$DIR"
+
+# --- Configuración (se puede sobreescribir con variables de entorno) ---
+SSH_HOST="${DEPLOY_SSH_HOST:-server-hetzner}"
+SITE_USER="${DEPLOY_SITE_USER:-leotrujillo}"
+SITE_URL="${DEPLOY_SITE_URL:-https://leonardotrujillo.uy}"
+SITE_DOMAIN="${DEPLOY_SITE_DOMAIN:-leonardotrujillo.uy}"
+REMOTE_DIR="${DEPLOY_REMOTE_DIR:-/home/${SITE_USER}/htdocs/${SITE_DOMAIN}/wp-content/plugins/dinamica-newton}"
+BACKUP_DIR="${DEPLOY_BACKUP_DIR:-/home/${SITE_USER}/backups/files}"
+VARNISH_ADDR="${DEPLOY_VARNISH_ADDR:-127.0.0.1:6081}"
+# Etiqueta de caché del sitio (cacheTagPrefix en ~/.varnish-cache/settings.json del usuario del sitio)
+CACHE_TAG="${DEPLOY_CACHE_TAG:-ab0e}"
+
+# En el servidor el plugin se llama dinamica-newton: el archivo principal cambia de nombre al subir.
+LOCAL_MAIN="plugin-segundaley.php"
+REMOTE_MAIN="dinamica-newton.php"
+
+DRY_RUN=0
+[ "${1:-}" = "--dry-run" ] && DRY_RUN=1
+
+# --- Lista explícita de archivos a desplegar ---
+FILES=("$LOCAL_MAIN")
+for pattern in "assets/css/*.css" "assets/js/*.js" "assets/images/evaluacion/*.png" "templates/*.php"; do
+  for f in $pattern; do
+    [ -f "$f" ] && FILES+=("$f")
+  done
+done
+
+for f in "${FILES[@]}"; do
+  [ -f "$f" ] || { echo "ERROR: falta el archivo $f" >&2; exit 1; }
+done
+
+remote_name() { [ "$1" = "$LOCAL_MAIN" ] && echo "$REMOTE_MAIN" || echo "$1"; }
+
+# Chequeo de sintaxis local del JS antes de subir algo roto
+if command -v node >/dev/null 2>&1; then
+  node --check assets/js/dinamica.js
+  echo "✔ JS: sintaxis correcta"
+fi
+if command -v php >/dev/null 2>&1; then
+  php -l "$LOCAL_MAIN" >/dev/null && echo "✔ PHP: sintaxis correcta"
+fi
+
+# Hashes locales con el nombre remoto
+LOCAL_SUMS="$(mktemp)"
+trap 'rm -f "$LOCAL_SUMS"' EXIT
+for f in "${FILES[@]}"; do
+  printf '%s  %s\n' "$(md5sum "$f" | cut -d' ' -f1)" "$(remote_name "$f")"
+done > "$LOCAL_SUMS"
+
+echo "Servidor: $SSH_HOST → $REMOTE_DIR"
+echo "Archivos a revisar: ${#FILES[@]}"
+
+# Qué cambia respecto del servidor
+CHANGED="$(ssh "$SSH_HOST" "cd '$REMOTE_DIR' && md5sum -c --quiet -" < "$LOCAL_SUMS" 2>&1 | grep -E 'FALLÓ|FAILED|No existe|No such' || true)"
+if [ -z "$CHANGED" ]; then
+  echo "Sin cambios: el servidor ya tiene exactamente estos archivos."
+else
+  echo "Archivos que cambian:"
+  echo "$CHANGED" | sed 's/^/  - /'
+fi
+
+if [ "$DRY_RUN" -eq 1 ]; then
+  echo "(--dry-run: no se subió nada)"
+  exit 0
+fi
+
+# --- Backup en el servidor ---
+STAMP="$(date +%Y%m%d-%H%M%S)"
+BACKUP_FILE="$BACKUP_DIR/dinamica-newton_antes-$STAMP.tar.gz"
+ssh "$SSH_HOST" "mkdir -p '$BACKUP_DIR' && tar czf '$BACKUP_FILE' -C '$(dirname "$REMOTE_DIR")' '$(basename "$REMOTE_DIR")' && chown $SITE_USER:$SITE_USER '$BACKUP_FILE'"
+echo "✔ Backup: $BACKUP_FILE"
+
+# --- Subida (un solo tar por SSH, renombrando el archivo principal) ---
+tar cf - --transform="s#^${LOCAL_MAIN}\$#${REMOTE_MAIN}#" "${FILES[@]}" \
+  | ssh "$SSH_HOST" "tar xf - --no-same-owner -C '$REMOTE_DIR' && chown -R $SITE_USER:$SITE_USER '$REMOTE_DIR' && find '$REMOTE_DIR' -type d -exec chmod 755 {} + && find '$REMOTE_DIR' -type f -exec chmod 644 {} +"
+echo "✔ Archivos subidos"
+
+# --- Verificación por hash ---
+if ssh "$SSH_HOST" "cd '$REMOTE_DIR' && md5sum -c --quiet -" < "$LOCAL_SUMS"; then
+  echo "✔ Verificación: todos los hashes coinciden"
+else
+  echo "ERROR: los hashes del servidor no coinciden con los locales. Backup en $BACKUP_FILE" >&2
+  exit 1
+fi
+
+# --- Limpieza de caché de Varnish (solo la etiqueta de este sitio) ---
+PURGE_CODE="$(ssh "$SSH_HOST" "curl -s -o /dev/null -w '%{http_code}' -X PURGE -H 'X-Cache-Tags: $CACHE_TAG' http://$VARNISH_ADDR")"
+if [ "$PURGE_CODE" = "200" ]; then
+  echo "✔ Caché de Varnish limpiada (etiqueta $CACHE_TAG)"
+else
+  echo "AVISO: la purga de Varnish respondió $PURGE_CODE; puede que sigas viendo la versión anterior un rato." >&2
+fi
+
+# --- Comprobación final: el sitio responde y emite la versión nueva del JS ---
+sleep 2
+HTTP_CODE="$(curl -s -o /dev/null -w '%{http_code}' "$SITE_URL/")"
+VER="$(curl -s "$SITE_URL/" | grep -o 'dinamica.js?ver=[^"'"'"']*' | head -1 || true)"
+echo "✔ Sitio: HTTP $HTTP_CODE ${VER:+· $VER}"
+[ "$HTTP_CODE" = "200" ] || { echo "AVISO: el sitio no respondió 200" >&2; exit 1; }
+
+echo "Listo. Si algo falla, restaurar con: ssh $SSH_HOST \"tar xzf $BACKUP_FILE -C $(dirname "$REMOTE_DIR")\""
