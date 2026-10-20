@@ -30,6 +30,13 @@ if (!function_exists('psd_asset_version')) {
  */
 if (!function_exists('psd_enqueue_assets')) {
     function psd_enqueue_assets() {
+        // Solo en páginas que usan el shortcode: ambos plugins comparten ids (sim1-svg, etc.)
+        // y si se cargan juntos uno pisa los esquemas del otro.
+        $post = get_post();
+        if (!$post || !(has_shortcode($post->post_content, 'dinamica_newton') || has_shortcode($post->post_content, 'segunda_ley'))) {
+            return;
+        }
+
         // KaTeX para renderizado matemático formal con flechas vectoriales (\vec{F}, \Sigma\vec{F})
         wp_enqueue_style(
             'katex-css',
